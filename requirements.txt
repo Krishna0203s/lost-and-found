@@ -1,0 +1,35 @@
+# ==============================================================================
+# Campus Lost & Found System - Requirements
+# ==============================================================================
+#
+# NOTE: The core server is a high-performance, native C99 web application.
+# It does NOT require Python or Node.js to build or run.
+#
+# NATIVE WINDOWS BUILD REQUIREMENTS:
+# ------------------------------------------------------------------------------
+# 1. C Compiler:
+#    - MinGW-w64 GCC (recommended via MSYS2 UCRT64) OR Clang / w64devkit
+#      MSYS2 package: mingw-w64-ucrt-x86_64-gcc
+# 2. SQLite3 Development Library:
+#    - sqlite3.h and libsqlite3.a / sqlite3.dll
+#      MSYS2 package: mingw-w64-ucrt-x86_64-sqlite3
+# 3. Windows Sockets & Threads:
+#    - ws2_32 (standard Windows networking library, included in Windows SDK)
+#    - winpthreads (POSIX threads for Windows, bundled with MinGW-w64)
+# 4. Build Utilities (Optional):
+#    - GNU Make: mingw-w64-ucrt-x86_64-make (or use 'build_windows.bat')
+#
+# QUICK COMMAND (MSYS2 UCRT64):
+#   pacman -S --needed mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-sqlite3 mingw-w64-ucrt-x86_64-make
+#
+# ------------------------------------------------------------------------------
+# OPTIONAL: PYTHON AUTOMATED E2E & PLAYWRIGHT TEST SUITE REQUIREMENTS
+# ------------------------------------------------------------------------------
+# If you wish to run automated end-to-end browser & accessibility tests:
+#   pip install -r requirements.txt
+#   playwright install chromium
+# ------------------------------------------------------------------------------
+
+playwright>=1.40.0
+pytest>=7.4.0
+requests>=2.31.0
