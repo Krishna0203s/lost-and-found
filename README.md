@@ -48,6 +48,16 @@ Then visit [http://localhost:8080/](http://localhost:8080/) in your browser.
 
 ---
 
+## ☁️ Cloud & Vercel Deployment
+
+The project is configured out-of-the-box for serverless deployment on Vercel:
+
+1. Push your repository to GitHub.
+2. Import the repository into your **Vercel Dashboard**.
+3. Deploy! Vercel automatically routes static frontend assets (`web/`) and REST API functions (`/api/*` via `index.py`).
+
+---
+
 ## 📁 Project Structure
 
 ```text

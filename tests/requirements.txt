@@ -1,0 +1,11 @@
+# ==============================================================================
+# Campus Lost & Found System - Automated Test Requirements
+# ==============================================================================
+# To run automated end-to-end browser & accessibility tests:
+#   pip install -r tests/requirements.txt
+#   playwright install chromium
+# ==============================================================================
+
+playwright>=1.40.0
+pytest>=7.4.0
+requests>=2.31.0

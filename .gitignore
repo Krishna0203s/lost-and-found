@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Vercel
+.vercel
+
+# Compiled C Objects & Binaries
+*.o
+*.exe
+lostfound_server
+test_matching
+
+# OS files
+.DS_Store
+Thumbs.db
