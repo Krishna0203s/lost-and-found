@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sign In — Campus Lost &amp; Found</title>
+    <meta name="description" content="Secure campus lost and found authentication gateway for students and administrators.">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎓</text></svg>">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="login-page-body">
+
+    <!-- Top Navigation Header (Matched with Main Application) -->
+    <header class="navbar login-navbar">
+        <div class="nav-container">
+            <a href="index.html" class="brand" title="Campus Lost &amp; Found Portal">
+                <div class="brand-cube-icon">
+                    <span style="font-size: 1.15rem;">📦</span>
+                </div>
+                <div class="brand-text">
+                    <span class="brand-title">CAMPUS <span class="accent-text">LOST &amp; FOUND</span></span>
+                </div>
+            </a>
+
+            <div class="nav-actions">
+                <a href="index.html" class="btn btn-sm btn-ghost" title="Explore public registry in view-only mode">
+                    <svg class="btn-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                    <span>Browse as Guest (View-Only)</span>
+                </a>
+                <div class="theme-picker-wrapper">
+                    <button id="btnThemeToggle" class="btn-theme-toggle" title="Select Color Scheme" aria-label="Select color scheme" aria-haspopup="true" aria-expanded="false">
+                        <svg class="theme-icon theme-icon-light" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                        <svg class="theme-icon theme-icon-dark" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+                    </button>
+                    <div id="themeDropdown" class="theme-dropdown" style="display: none;">
+                        <div class="theme-dropdown-header">Appearance</div>
+                        <button type="button" class="theme-dropdown-option" data-theme="light">
+                            <span class="theme-option-icon">☀️</span>
+                            <div class="theme-option-info">
+                                <span class="theme-option-title">Light</span>
+                                <span class="theme-option-desc">Crisp daylight theme</span>
+                            </div>
+                            <span class="theme-option-check">✓</span>
+                        </button>
+                        <button type="button" class="theme-dropdown-option" data-theme="dark">
+                            <span class="theme-option-icon">🌙</span>
+                            <div class="theme-option-info">
+                                <span class="theme-option-title">Dark</span>
+                                <span class="theme-option-desc">AMOLED deep night</span>
+                            </div>
+                            <span class="theme-option-check">✓</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Card Container -->
+    <main class="login-main-container">
+        <div class="login-card glass-panel">
+            
+            <!-- Card Header -->
+            <div class="login-card-header">
+                <span class="login-card-icon" id="loginCardIcon">🎓</span>
+                <h1 class="login-card-title">Campus Sign In</h1>
+                <p class="login-card-subtitle" id="loginCardSubtitle">Access lost reports, claim belongings, or manage administrative controls</p>
+            </div>
+
+            <!-- Active Session Notice (Shown only if already logged in) -->
+            <div id="activeSessionBanner" class="active-session-banner" style="display: none;">
+                <div id="activeSessionDetails" style="font-size: 0.88rem; color: var(--text-main);"></div>
+                <div style="display: flex; gap: 8px;">
+                    <button id="btnContinueDashboard" class="btn btn-sm btn-found" style="flex: 1;">
+                        Continue to Dashboard →
+                    </button>
+                    <button id="btnSignOutCurrent" class="btn btn-sm btn-ghost" style="color: var(--crimson-alert);">
+                        Sign Out
+                    </button>
+                </div>
+            </div>
+
+            <!-- Role Tabs (Student vs. Administrator) -->
+            <div class="login-role-tabs">
+                <button type="button" id="tabStudent" class="login-role-tab active">
+                    <span>🎓</span>
+                    <span>Student Portal</span>
+                </button>
+                <button type="button" id="tabAdmin" class="login-role-tab">
+                    <span>🛡️</span>
+                    <span>Admin Control</span>
+                </button>
+            </div>
+
+            <!-- Panel 1: Student Login -->
+            <div id="panelStudent">
+                <div class="auth-notice-banner auth-notice-student">
+                    <span class="notice-icon">🎓</span>
+                    <span>Sign in with your Student ID or campus email to track missing items and receive automated match alerts.</span>
+                </div>
+
+                <form id="formStudent" novalidate>
+                    <div class="login-form-group">
+                        <label for="studentIdentifier">Student ID or Campus Email</label>
+                        <input type="text" id="studentIdentifier" placeholder="e.g. STU-2024-001 or student@campus.edu" required autocomplete="username">
+                    </div>
+
+                    <button type="submit" class="btn btn-found login-submit-btn">
+                        <span>Sign In to Student Portal →</span>
+                    </button>
+                </form>
+
+                <div class="login-footer-links">
+                    <span>Just browsing campus belongings?</span>
+                    <a href="index.html">Continue in View-Only Mode →</a>
+                </div>
+            </div>
+
+            <!-- Panel 2: Administrator Access -->
+            <div id="panelAdmin" style="display: none;">
+                <div class="auth-notice-banner auth-notice-admin">
+                    <span class="notice-icon">🔒</span>
+                    <span>Restricted Portal: Admin privileges required to manage master inventory, places, and user access.</span>
+                </div>
+
+                <form id="formAdmin" novalidate>
+                    <div class="login-form-group">
+                        <label for="adminUsername">Administrator Username or ID</label>
+                        <input type="text" id="adminUsername" placeholder="e.g. admin" required autocomplete="username">
+                    </div>
+
+                    <div class="login-form-group">
+                        <label for="adminPassword">Administrator Password</label>
+                        <input type="password" id="adminPassword" placeholder="Enter password (e.g. admin123)" required autocomplete="current-password">
+                    </div>
+
+                    <button type="submit" class="btn btn-lost login-submit-btn">
+                        <svg class="btn-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                        <span>Authenticate Administrator →</span>
+                    </button>
+                </form>
+
+                <div class="login-footer-links">
+                    <span>Are you a student looking for belongings?</span>
+                    <a href="#" onclick="document.getElementById('tabStudent').click(); return false;">← Switch to Student Sign In</a>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="login-footer">
+        Campus Lost &amp; Found Architecture &bull; Pure C Backend &bull; SQLite Storage
+    </footer>
+
+    <!-- Interactive Toast Notification Container -->
+    <aside aria-label="Notifications">
+        <div id="toastContainer" class="toast-container" role="status" aria-live="polite"></div>
+    </aside>
+
+    <!-- Scripts -->
+    <script src="js/api.js"></script>
+    <script src="js/animations.js"></script>
+    <script src="js/login.js"></script>
+</body>
+</html>

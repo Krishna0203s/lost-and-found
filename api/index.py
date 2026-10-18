@@ -1,7 +1,7 @@
 """
 Campus Lost & Found System — Self-Contained Serverless Function (/api/index.py)
-Replicates 100% of the C99 backend REST API and matching engine for Vercel Serverless.
-Zero third-party dependencies (uses Python standard library only).
+Serves REST API endpoints (/api/*) and provides static asset fallback for Vercel Serverless.
+Zero external dependencies (Python standard library only).
 """
 
 import os
@@ -9,12 +9,13 @@ import sys
 import json
 import sqlite3
 import datetime
+import mimetypes
 import re
 import urllib.parse
 from http.server import BaseHTTPRequestHandler
 
 # ------------------------------------------------------------------------------
-# 1. EMBEDDED SQL SCHEMA & FALLBACK SEED DATA
+# 1. EMBEDDED SQL SCHEMA & INITIAL RECORDS
 # ------------------------------------------------------------------------------
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -120,17 +121,14 @@ INSERT OR IGNORE INTO matches (match_id, lost_item_id, found_item_id, category_s
 """
 
 # ------------------------------------------------------------------------------
-# 2. DATABASE RESOLUTION (Writable in /tmp for Vercel Serverless)
+# 2. PATHS & DATABASE RESOLUTION (Writable in /tmp for Serverless)
 # ------------------------------------------------------------------------------
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(CURRENT_DIR)
 
-# In Vercel / serverless runtime, working directory is read-only.
-# We always write to /tmp/lostfound.db
 if os.environ.get("VERCEL") or not os.access(ROOT_DIR, os.W_OK):
     DB_PATH = "/tmp/lostfound.db"
     if not os.path.exists(DB_PATH):
-        # Try copying existing lostfound.db if bundled
         copied = False
         for candidate in [os.path.join(ROOT_DIR, "lostfound.db"), os.path.join(CURRENT_DIR, "lostfound.db"), "lostfound.db"]:
             if os.path.exists(candidate):
@@ -162,7 +160,50 @@ def get_db():
     return conn
 
 # ------------------------------------------------------------------------------
-# 3. MATCHING ENGINE (C99 Replicated)
+# 3. STATIC FILE SERVING HELPERS
+# ------------------------------------------------------------------------------
+def get_static_file(raw_path):
+    clean = raw_path.strip("/")
+    if clean.startswith("web/"):
+        clean = clean[4:]
+    elif clean == "web":
+        clean = ""
+
+    if not clean or clean == "index.html":
+        clean = "index.html"
+
+    # Search in public/, web/, and current directory
+    search_dirs = [
+        os.path.join(ROOT_DIR, "public"),
+        os.path.join(ROOT_DIR, "web"),
+        os.path.join(CURRENT_DIR, "public"),
+        os.path.join(CURRENT_DIR, "web"),
+    ]
+
+    for sdir in search_dirs:
+        target = os.path.normpath(os.path.join(sdir, clean))
+        if os.path.isfile(target):
+            mime, _ = mimetypes.guess_type(target)
+            if not mime:
+                mime = "application/octet-stream"
+            if mime.startswith("text/") or "javascript" in mime or "json" in mime:
+                mime += "; charset=utf-8"
+            with open(target, "rb") as f:
+                return f.read(), mime
+    return None, None
+
+def is_known_api_endpoint(path):
+    p = path.lstrip("/")
+    if p.startswith("api"):
+        return True
+    first_seg = p.split("/")[0]
+    return first_seg in (
+        "statistics", "seed", "items", "matches", "claims",
+        "auth", "users", "locations", "categories", "c-info", "test-matching"
+    )
+
+# ------------------------------------------------------------------------------
+# 4. MATCHING ENGINE
 # ------------------------------------------------------------------------------
 STOP_WORDS = {
     "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of",
@@ -304,7 +345,7 @@ def evaluate_matches_for_item(conn, item_id):
     conn.commit()
 
 # ------------------------------------------------------------------------------
-# 4. AUTHENTICATION & SERIALIZATION
+# 5. AUTHENTICATION & ACCESS CONTROL
 # ------------------------------------------------------------------------------
 def get_auth_user(headers, conn):
     auth_header = headers.get("Authorization") or headers.get("authorization") or ""
@@ -347,10 +388,9 @@ def serialize_match(match_row, lost_row, found_row, include_secrets=True):
     return m
 
 # ------------------------------------------------------------------------------
-# 5. REST API ROUTER
+# 6. REST API ROUTER
 # ------------------------------------------------------------------------------
 def handle_api(method, raw_path, query_params, body, headers):
-    # Normalize path so both /api/statistics and /statistics resolve identically
     path = raw_path
     if not path.startswith("/api"):
         path = "/api" + ("" if path.startswith("/") else "/") + path
@@ -958,7 +998,7 @@ def handle_api(method, raw_path, query_params, body, headers):
     return 404, {"success": False, "error": f"Endpoint not found: {method} {raw_path}"}
 
 # ------------------------------------------------------------------------------
-# 6. WSGI COMPATIBLE CALLABLE (`app`)
+# 7. WSGI COMPATIBLE ENTRYPOINT (`app`)
 # ------------------------------------------------------------------------------
 def app(environ, start_response):
     path = environ.get("PATH_INFO", "/")
@@ -982,33 +1022,52 @@ def app(environ, start_response):
         ])
         return [b""]
 
-    body = None
-    try:
-        content_length = int(environ.get("CONTENT_LENGTH", 0) or 0)
-    except ValueError:
-        content_length = 0
-
-    if content_length > 0:
-        raw_body = environ["wsgi.input"].read(content_length)
+    # If this is an API route, process via API router
+    if is_known_api_endpoint(path):
+        body = None
         try:
-            body = json.loads(raw_body.decode("utf-8"))
-        except Exception:
-            body = {}
+            content_length = int(environ.get("CONTENT_LENGTH", 0) or 0)
+        except ValueError:
+            content_length = 0
 
-    status_code, resp_data = handle_api(method, path, query_params, body, headers)
-    resp_bytes = json.dumps(resp_data).encode("utf-8")
-    status_line = f"{status_code} OK" if status_code < 400 else f"{status_code} Error"
-    start_response(status_line, [
+        if content_length > 0:
+            raw_body = environ["wsgi.input"].read(content_length)
+            try:
+                body = json.loads(raw_body.decode("utf-8"))
+            except Exception:
+                body = {}
+
+        status_code, resp_data = handle_api(method, path, query_params, body, headers)
+        resp_bytes = json.dumps(resp_data).encode("utf-8")
+        status_line = f"{status_code} OK" if status_code < 400 else f"{status_code} Error"
+        start_response(status_line, [
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Content-Length", str(len(resp_bytes))),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Access-Control-Allow-Headers", "Content-Type, Authorization"),
+            ("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+        ])
+        return [resp_bytes]
+
+    # Non-API route: serve static asset fallback (e.g. /web/, /index.html, /css/style.css)
+    file_bytes, mime_type = get_static_file(path)
+    if file_bytes is not None:
+        start_response("200 OK", [
+            ("Content-Type", mime_type),
+            ("Content-Length", str(len(file_bytes))),
+            ("Cache-Control", "public, max-age=3600")
+        ])
+        return [file_bytes]
+
+    err_bytes = json.dumps({"success": False, "error": f"Endpoint not found: {method} {path}"}).encode("utf-8")
+    start_response("404 Not Found", [
         ("Content-Type", "application/json; charset=utf-8"),
-        ("Content-Length", str(len(resp_bytes))),
-        ("Access-Control-Allow-Origin", "*"),
-        ("Access-Control-Allow-Headers", "Content-Type, Authorization"),
-        ("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+        ("Content-Length", str(len(err_bytes)))
     ])
-    return [resp_bytes]
+    return [err_bytes]
 
 # ------------------------------------------------------------------------------
-# 7. VERCEL BaseHTTPRequestHandler ENTRYPOINT (`handler`)
+# 8. VERCEL BaseHTTPRequestHandler ENTRYPOINT (`handler`)
 # ------------------------------------------------------------------------------
 class handler(BaseHTTPRequestHandler):
     def _handle_request(self, method):
@@ -1025,25 +1084,42 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
             return
 
-        body = None
-        length = int(self.headers.get("Content-Length", 0) or 0)
-        if length > 0:
-            raw = self.rfile.read(length)
-            try:
-                body = json.loads(raw.decode("utf-8"))
-            except Exception:
-                body = {}
+        if is_known_api_endpoint(path):
+            body = None
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            if length > 0:
+                raw = self.rfile.read(length)
+                try:
+                    body = json.loads(raw.decode("utf-8"))
+                except Exception:
+                    body = {}
 
-        code, resp_data = handle_api(method, path, query_params, body, headers)
-        data = json.dumps(resp_data).encode("utf-8")
-        self.send_response(code)
+            code, resp_data = handle_api(method, path, query_params, body, headers)
+            data = json.dumps(resp_data).encode("utf-8")
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+            self.end_headers()
+            self.wfile.write(data)
+            return
+
+        file_bytes, mime_type = get_static_file(path)
+        if file_bytes is not None:
+            self.send_response(200)
+            self.send_header("Content-Type", mime_type)
+            self.send_header("Content-Length", str(len(file_bytes)))
+            self.send_header("Cache-Control", "public, max-age=3600")
+            self.end_headers()
+            self.wfile.write(file_bytes)
+            return
+
+        self.send_response(404)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(data)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.end_headers()
-        self.wfile.write(data)
+        self.wfile.write(json.dumps({"success": False, "error": f"Endpoint not found: {method} {path}"}).encode("utf-8"))
 
     def do_GET(self):
         self._handle_request("GET")
