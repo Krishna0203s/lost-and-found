@@ -1,9 +1,18 @@
 {
   "version": 2,
+  "functions": {
+    "api/index.py": {
+      "includeFiles": "lostfound.db"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
-      "destination": "/index.py"
+      "destination": "/api/index.py"
+    },
+    {
+      "source": "/api",
+      "destination": "/api/index.py"
     },
     {
       "source": "/(.*)",
