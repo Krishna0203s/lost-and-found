@@ -128,17 +128,41 @@ ROOT_DIR = os.path.dirname(CURRENT_DIR)
 
 if os.environ.get("VERCEL") or not os.access(ROOT_DIR, os.W_OK):
     DB_PATH = "/tmp/lostfound.db"
-    if not os.path.exists(DB_PATH):
+else:
+    DB_PATH = os.path.join(ROOT_DIR, "lostfound.db")
+
+def init_db_if_needed():
+    global DB_PATH
+    if os.environ.get("VERCEL") or not os.access(ROOT_DIR, os.W_OK):
+        DB_PATH = "/tmp/lostfound.db"
+    else:
+        DB_PATH = os.path.join(ROOT_DIR, "lostfound.db")
+
+    needs_init = False
+    if not os.path.exists(DB_PATH) or os.path.getsize(DB_PATH) == 0:
+        needs_init = True
+    else:
+        try:
+            test_conn = sqlite3.connect(DB_PATH, timeout=3.0)
+            row = test_conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users';").fetchone()
+            test_conn.close()
+            if not row:
+                needs_init = True
+        except Exception:
+            needs_init = True
+
+    if needs_init:
         copied = False
-        for candidate in [os.path.join(ROOT_DIR, "lostfound.db"), os.path.join(CURRENT_DIR, "lostfound.db"), "lostfound.db"]:
-            if os.path.exists(candidate):
-                try:
-                    import shutil
-                    shutil.copy2(candidate, DB_PATH)
-                    copied = True
-                    break
-                except Exception:
-                    pass
+        if DB_PATH.startswith("/tmp"):
+            for candidate in [os.path.join(ROOT_DIR, "lostfound.db"), os.path.join(CURRENT_DIR, "lostfound.db"), "lostfound.db"]:
+                if os.path.exists(candidate) and os.path.getsize(candidate) > 0:
+                    try:
+                        import shutil
+                        shutil.copy2(candidate, DB_PATH)
+                        copied = True
+                        break
+                    except Exception:
+                        pass
         if not copied:
             try:
                 conn = sqlite3.connect(DB_PATH)
@@ -146,18 +170,16 @@ if os.environ.get("VERCEL") or not os.access(ROOT_DIR, os.W_OK):
                 conn.close()
             except Exception as e:
                 print(f"[DB Init Error]: {e}", file=sys.stderr)
-else:
-    DB_PATH = os.path.join(ROOT_DIR, "lostfound.db")
-    if not os.path.exists(DB_PATH):
-        conn = sqlite3.connect(DB_PATH)
-        conn.executescript(SCHEMA_SQL)
-        conn.close()
+
+init_db_if_needed()
 
 def get_db():
+    init_db_if_needed()
     conn = sqlite3.connect(DB_PATH, timeout=10.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON;")
     return conn
+
 
 # ------------------------------------------------------------------------------
 # 3. STATIC FILE SERVING HELPERS
@@ -201,6 +223,42 @@ def is_known_api_endpoint(path):
         "statistics", "seed", "items", "matches", "claims",
         "auth", "users", "locations", "categories", "c-info", "test-matching"
     )
+
+def resolve_request_path(raw_path, headers, query_params):
+    """
+    Recovers the actual API route, accounting for:
+    1. Vercel internal rewrites with forwarded query params (?__path=/api/...)
+    2. Vercel edge rewrite/proxy headers (x-matched-path, x-forwarded-uri, etc.)
+    3. Direct execution (local WSGI / BaseHTTPRequestHandler)
+    """
+    clean = (raw_path or "").strip()
+
+    # 1. Forwarded path via query parameter from rewrite
+    forwarded = query_params.get("__path") or query_params.get("path") or query_params.get("route")
+    if forwarded:
+        forwarded = forwarded.strip().lstrip("/")
+        if forwarded and not forwarded.startswith("api"):
+            forwarded = f"api/{forwarded}"
+        return f"/{forwarded}" if forwarded else "/api"
+
+    # 2. Vercel edge rewrite and reverse proxy headers
+    for h in ("x-matched-path", "x-forwarded-uri", "x-invoke-path", "x-vercel-matched-path"):
+        val = headers.get(h) or headers.get(h.title()) or headers.get(h.upper().replace("-", "_"))
+        if val:
+            parsed = urllib.parse.urlparse(val).path
+            if parsed and parsed not in ("/api/index.py", "/api/index", "/index.py", "/main.py"):
+                return parsed
+
+    # 3. Direct endpoint paths
+    if clean and clean not in ("/api/index.py", "/api/index", "/index.py", "/main.py", ""):
+        return clean
+
+    # 4. Fallback for root API invocation
+    if clean in ("/api/index.py", "/api/index"):
+        return "/api"
+
+    return clean or "/"
+
 
 # ------------------------------------------------------------------------------
 # 4. MATCHING ENGINE
@@ -365,7 +423,7 @@ def get_auth_user(headers, conn):
         return None
 
     cur = conn.cursor()
-    cur.execute("SELECT * FROM users WHERE student_id = ? OR email = ? OR name = ?", (identifier, identifier, identifier))
+    cur.execute("SELECT * FROM users WHERE LOWER(student_id) = LOWER(?) OR LOWER(email) = LOWER(?) OR LOWER(name) = LOWER(?)", (identifier, identifier, identifier))
     row = cur.fetchone()
     if row:
         return dict(row)
@@ -398,6 +456,28 @@ def handle_api(method, raw_path, query_params, body, headers):
     conn = get_db()
     auth_user = get_auth_user(headers, conn)
     user_is_admin = is_admin(auth_user)
+
+    # 0. GET /api or /api/ (Operational Status & Health Check)
+    if method == "GET" and path in ("/api", "/api/"):
+        return 200, {
+            "success": True,
+            "message": "Campus Lost & Found Serverless API is operational",
+            "version": "1.0",
+            "status": "healthy",
+            "endpoints": [
+                "/api/statistics",
+                "/api/items/lost",
+                "/api/items/found",
+                "/api/items/search",
+                "/api/matches",
+                "/api/claims",
+                "/api/auth/login",
+                "/api/users",
+                "/api/locations",
+                "/api/categories",
+                "/api/c-info"
+            ]
+        }
 
     # 1. GET /api/statistics
     if method == "GET" and path == "/api/statistics":
@@ -837,7 +917,7 @@ def handle_api(method, raw_path, query_params, body, headers):
             return 400, {"success": False, "error": "Identifier (student ID, email, or username) is required"}
 
         cur = conn.cursor()
-        cur.execute("SELECT * FROM users WHERE student_id = ? OR email = ? OR name = ?", (ident, ident, ident))
+        cur.execute("SELECT * FROM users WHERE LOWER(student_id) = LOWER(?) OR LOWER(email) = LOWER(?) OR LOWER(name) = LOWER(?)", (ident, ident, ident))
         row = cur.fetchone()
         if not row:
             return 401, {"success": False, "error": "Invalid credentials: No account found"}
@@ -997,11 +1077,23 @@ def handle_api(method, raw_path, query_params, body, headers):
 
     return 404, {"success": False, "error": f"Endpoint not found: {method} {raw_path}"}
 
+HTTP_STATUS_PHRASES = {
+    200: "200 OK",
+    201: "201 Created",
+    204: "204 No Content",
+    400: "400 Bad Request",
+    401: "401 Unauthorized",
+    403: "403 Forbidden",
+    404: "404 Not Found",
+    409: "409 Conflict",
+    500: "500 Internal Server Error"
+}
+
 # ------------------------------------------------------------------------------
 # 7. WSGI COMPATIBLE ENTRYPOINT (`app`)
 # ------------------------------------------------------------------------------
 def app(environ, start_response):
-    path = environ.get("PATH_INFO", "/")
+    raw_path = environ.get("PATH_INFO", "/")
     method = environ.get("REQUEST_METHOD", "GET").upper()
     query_string = environ.get("QUERY_STRING", "")
     query_params = {k: v[0] for k, v in urllib.parse.parse_qs(query_string).items()}
@@ -1009,10 +1101,13 @@ def app(environ, start_response):
     headers = {}
     for key, val in environ.items():
         if key.startswith("HTTP_"):
-            header_name = key[5:].replace("_", "-").title()
-            headers[header_name] = val
+            clean_k = key[5:].replace("_", "-")
+            headers[clean_k.title()] = val
+            headers[clean_k.lower()] = val
         elif key in ("CONTENT_TYPE", "CONTENT_LENGTH"):
-            headers[key.replace("_", "-").title()] = val
+            clean_k = key.replace("_", "-")
+            headers[clean_k.title()] = val
+            headers[clean_k.lower()] = val
 
     if method == "OPTIONS":
         start_response("204 No Content", [
@@ -1021,6 +1116,9 @@ def app(environ, start_response):
             ("Access-Control-Allow-Headers", "Content-Type, Authorization")
         ])
         return [b""]
+
+    # Resolve target API route (recovering path from rewrites/headers if needed)
+    path = resolve_request_path(raw_path, headers, query_params)
 
     # If this is an API route, process via API router
     if is_known_api_endpoint(path):
@@ -1039,7 +1137,7 @@ def app(environ, start_response):
 
         status_code, resp_data = handle_api(method, path, query_params, body, headers)
         resp_bytes = json.dumps(resp_data).encode("utf-8")
-        status_line = f"{status_code} OK" if status_code < 400 else f"{status_code} Error"
+        status_line = HTTP_STATUS_PHRASES.get(status_code, f"{status_code} OK" if status_code < 400 else f"{status_code} Error")
         start_response(status_line, [
             ("Content-Type", "application/json; charset=utf-8"),
             ("Content-Length", str(len(resp_bytes))),
@@ -1072,9 +1170,12 @@ def app(environ, start_response):
 class handler(BaseHTTPRequestHandler):
     def _handle_request(self, method):
         parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
+        raw_path = parsed.path
         query_params = {k: v[0] for k, v in urllib.parse.parse_qs(parsed.query).items()}
-        headers = {k: v for k, v in self.headers.items()}
+        headers = {}
+        for k, v in self.headers.items():
+            headers[k] = v
+            headers[k.lower()] = v
 
         if method == "OPTIONS":
             self.send_response(204)
@@ -1083,6 +1184,9 @@ class handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
             self.end_headers()
             return
+
+        # Resolve target API route (recovering path from rewrites/headers if needed)
+        path = resolve_request_path(raw_path, headers, query_params)
 
         if is_known_api_endpoint(path):
             body = None

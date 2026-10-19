@@ -190,6 +190,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 try {
                     res = await API.login(identifier, '');
                 } catch (loginErr) {
+                    if (loginErr && loginErr.message && (
+                        loginErr.message.includes('Incorrect password') ||
+                        loginErr.message.includes('Access Denied')
+                    )) {
+                        throw loginErr;
+                    }
                     // Auto-register student if account not created yet
                     const isEmail = identifier.includes('@');
                     const stuId = isEmail ? identifier.split('@')[0].toUpperCase() : identifier;
